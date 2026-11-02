@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="th"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ลองเล็บ AR</title>
+<link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#faf5f3;--ink:#2b1f2a;--mut:#7d6b78;--card:#fff;--line:#eadfdc;--acc:#c2185b;--ai:#fff;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--bg:#1b1419;--ink:#f3e9ee;--mut:#b6a2ae;--card:#271c24;--line:#3b2c36;--acc:#ff6f9e;--ai:#1b1419}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 15px/1.5 Prompt,"Noto Sans Thai",system-ui,sans-serif}
+h1{font-size:22px;margin:0;padding:14px 16px 0;font-weight:600}
+main{display:grid;gap:0 24px;padding:0 16px 40px;max-width:1100px;margin:auto}
+@media(min-width:900px){main{grid-template-columns:minmax(0,1fr) 380px}.live{position:sticky;top:12px}canvas{max-height:72vh!important}}
+.live{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);padding:6px 0}
+canvas{display:block;margin:auto;max-width:100%;max-height:46vh;border-radius:14px;background:#e9dedb;touch-action:none}
+#st{font-size:13px;color:var(--mut);text-align:center;margin:6px 0 0}
+.bar{display:flex;justify-content:space-between;align-items:baseline;padding:4px}.bar b{font-size:22px;color:var(--acc)}.bar small{color:var(--mut)}
+.tools{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
+.btn{font:500 14px Prompt,sans-serif;padding:9px 14px;border-radius:999px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer}
+.btn.pri{background:var(--acc);color:var(--ai);border-color:var(--acc)}
+.btn:disabled{opacity:.5}
+label.r{display:flex;align-items:center;gap:10px;margin:6px 0;font-size:14px}label.r input{flex:1;accent-color:var(--acc)}
+h2{font-size:16px;margin:20px 0 8px;font-weight:600;display:flex;justify-content:space-between}h2 span{color:var(--mut);font-weight:400;font-size:14px}
+.sw{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
+.s{aspect-ratio:1;border-radius:50%;border:3px solid var(--card);box-shadow:0 0 0 1px var(--line);background:linear-gradient(135deg,var(--a),var(--b));cursor:pointer}.s.on{box-shadow:0 0 0 3px var(--acc)}
+.row{display:flex;justify-content:space-between;width:100%;margin-bottom:6px;padding:11px 14px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--ink);font:inherit;cursor:pointer}
+.row em{font-style:normal;color:var(--mut)}.row.on{border-color:var(--acc);box-shadow:inset 0 0 0 1px var(--acc)}.row.on em{color:var(--acc)}
+.seg{display:flex;gap:6px}.seg .row{justify-content:center}
+.rc{margin-top:20px;padding:14px;border-radius:14px;background:var(--card);border:1px solid var(--line)}.rc div{display:flex;justify-content:space-between}.rc .t{border-top:1px solid var(--line);margin-top:6px;padding-top:8px;font-weight:600}
+</style></head><body>
+<h1>ลองเล็บ AR</h1>
+<main>
+<section>
+ <div class="tools">
+  <label class="btn pri">ถ่ายภาพมือ<input id="cam" type="file" accept="image/*" capture="environment" hidden></label>
+  <label class="btn">เลือกรูป<input id="pic" type="file" accept="image/*" hidden></label>
+  <button class="btn" id="lv">เปิดกล้องสด</button><button class="btn" id="snap" hidden>ถ่ายค้างภาพ</button>
+ </div>
+ <div class="live"><canvas id="c"></canvas><p id="st">กำลังโหลดระบบจับมือ…</p>
+  <div class="bar"><b id="tot"></b><small id="sum"></small></div></div>
+ <label class="r">ขนาดเล็บ<input id="sz" type="range" min=".7" max="1.4" step=".01" value="1"></label>
+ <label class="r">ตำแหน่ง<input id="ps" type="range" min="-.2" max=".2" step=".01" value="0"></label>
+ <p style="font-size:13px;color:var(--mut);margin:4px 0">หันหลังมือเข้ากล้อง กางนิ้วเล็กน้อย ในโหมดรูปถ่ายลากเล็บเพื่อขยับทีละนิ้วได้</p>
+</section>
+<section id="menu"></section>
+</main>
+<script type="module">
+import {FilesetResolver,HandLandmarker} from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
+const WASM="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
+const MODEL="https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
+const $=i=>document.getElementById(i),C=$('c'),x=C.getContext('2d',{willReadFrequently:true});
+let W=720,H=900;C.width=W;C.height=H;
+const SW=[['#e9b7b0','#f7e0db','ชมพูนู้ด'],['#b3123c','#e8556f','แดงเชอร์รี่'],['#6e1f3a','#a8486a','เบอร์กันดี'],['#f2956b','#fac9a8','ส้มพีช'],['#8fd1b8','#d3f0e4','มิ้นต์'],['#7fa8d8','#cbe0f5','ฟ้าพาสเทล'],['#a98bd6','#dccdf2','ลาเวนเดอร์'],['#221d27','#544c5c','ดำเงา'],['#f5f0ec','#ffffff','ขาวนม'],['#e3b23c','#f4dc8e','มัสตาร์ด']];
+const ST=[['solid','สีพื้น',0],['french','เฟรนช์',100],['ombre','ออมเบร',150],['glitter','กลิตเตอร์',80],['chrome','โครม',200]];
+const AD=[['matte','เคลือบด้าน',50],['gem','ประดับเพชร',120],['ext','ต่อเล็บยาว',400]];
+const SH=[['almond','อัลมอนด์'],['round','ทรงกลม'],['square','ทรงเหลี่ยม']];
+const BASE=350,TIP=[4,8,12,16,20],DIP=[3,7,11,15,19],K=[1.18,.95,1,.93,.78];
+let P={sw:1,st:'solid',ad:{},sh:'almond'},HL=null,run='IMAGE',src=null,mode=null,hands=[],sm=[],off={},sc=1,pos=0,stream=null,vid=null,lastT=-1,LX=-.4,drag=null,NS=[];
+const st=t=>$('st').textContent=t;
+const hx=h=>[1,3,5].map(i=>parseInt(h.slice(i,i+2),16));
+const mix=(a,b,t)=>'rgb('+hx(a).map((v,i)=>Math.round(v+(hx(b)[i]-v)*t)).join()+')';
+
+async function init(){try{const v=await FilesetResolver.forVisionTasks(WASM);
+ const o=d=>({baseOptions:{modelAssetPath:MODEL,delegate:d},runningMode:'IMAGE',numHands:2,minHandDetectionConfidence:.4});
+ try{HL=await HandLandmarker.createFromOptions(v,o('GPU'))}catch{HL=await HandLandmarker.createFromOptions(v,o('CPU'))}
+ st('พร้อมแล้ว — ถ่ายภาพหลังมือหรือเปิดกล้องสด')}catch(e){st('โหลดระบบจับมือไม่สำเร็จ ตรวจอินเทอร์เน็ตแล้วรีเฟรช')}}
+async function setRun(m){if(run!==m){await HL.setOptions({runningMode:m});run=m}}
+function size(w,h){const k=Math.min(1,1280/Math.max(w,h));W=C.width=Math.round(w*k);H=C.height=Math.round(h*k)}
+
+function path(w,h,sh){x.beginPath();const t=-h/2,b=h/2,l=-w/2,r=w/2,c=w*.11;
+ if(sh=='round'){x.moveTo(l,b);x.lineTo(l,t+w/2);x.arc(0,t+w/2,w/2,Math.PI,0);x.lineTo(r,b)}
+ else if(sh=='square'){x.moveTo(l,b);x.lineTo(l,t+c);x.quadraticCurveTo(l,t,l+c,t);x.lineTo(r-c,t);x.quadraticCurveTo(r,t,r,t+c);x.lineTo(r,b)}
+ else{x.moveTo(l,b);x.bezierCurveTo(l,h*.05,-w*.2,t+w*.05,0,t);x.bezierCurveTo(w*.2,t+w*.05,r,h*.05,r,b)}
+ x.quadraticCurveTo(0,b-h*.12,l,b);x.closePath()}
+
+function nailsOf(lm,hi){const p=i=>[lm[i].x*W,lm[i].y*H],a=p(5),b=p(17),pw=Math.hypot(a[0]-b[0],a[1]-b[1]);
+ return TIP.map((t,f)=>{const tp=p(t),dp=p(DIP[f]),dx=tp[0]-dp[0],dy=tp[1]-dp[1],L=Math.hypot(dx,dy)||1,w=pw*.23*K[f]*sc,h=Math.min(Math.max(L*.62*sc,w*.55),w*1.45),k=.3-pos,o=off[hi+'-'+f]||[0,0];
+  return{x:tp[0]-dx*k+o[0],y:tp[1]-dy*k+o[1],r:Math.atan2(dx,-dy),w,h,id:hi+'-'+f}})}
+
+function lum(n){const s=Math.max(2,Math.round(n.w*.25)),X=Math.max(0,Math.min(W-s,Math.round(n.x-s/2))),Y=Math.max(0,Math.min(H-s,Math.round(n.y-s/2)));
+ const d=x.getImageData(X,Y,s,s).data;let t=0;for(let i=0;i<d.length;i+=4)t+=.2126*d[i]+.7152*d[i+1]+.0722*d[i+2];return t/(d.length/4)/255}
+
+function nail(n,k){const Q=P,w=n.w,h0=n.h,h=h0*(Q.ad.ext?1.35:1),t=-h/2,b=h/2,c=SW[Q.sw],q=w/54,lx=LX*w*.22,F=g=>{x.fillStyle=g;x.fillRect(-w,t-4,w*2,h+8)};
+ const sh=Math.max(0,Math.min(.45,(.72-n.l)*.6)),gl=Math.max(.45,Math.min(1.1,n.l*1.3));
+ x.save();x.translate(n.x,n.y);x.rotate(n.r);x.translate(0,-(h-h0)/2);
+ path(w,h,Q.sh);x.save();x.shadowColor='rgba(40,10,10,.35)';x.shadowBlur=6*q;x.shadowOffsetY=2*q;x.fillStyle=c[0];x.fill();x.restore();
+ path(w,h,Q.sh);x.save();x.clip();
+ if(Q.st=='ombre'){const g=x.createLinearGradient(0,b,0,t);g.addColorStop(0,c[0]);g.addColorStop(1,c[1]);F(g)}
+ else if(Q.st=='chrome'){const o=LX*w*.3,g=x.createLinearGradient(-w/2+o,t,w/2+o,b);[[0,mix(c[0],'#ffffff',.7)],[.3,mix(c[0],'#444444',.3)],[.5,mix(c[0],'#ffffff',.85)],[.75,c[0]],[1,mix(c[0],'#222222',.55)]].forEach(s=>g.addColorStop(s[0],s[1]));F(g)}
+ else if(Q.st=='french'){x.globalAlpha=.45;F(c[0]);x.globalAlpha=1;x.fillStyle='#fdfbf8';x.beginPath();x.moveTo(-w,t-5);x.lineTo(w,t-5);x.lineTo(w,t+h*.2);x.quadraticCurveTo(0,t+h*.36,-w,t+h*.2);x.fill()}
+ else F(c[0]);
+ if(Q.st=='glitter'){let s=k*9301+49297;const R=()=>(s=(s*9301+49297)%233280)/233280;for(let j=0;j<44;j++){x.globalAlpha=.35+.65*Math.abs(Math.sin(j+LX*4));x.fillStyle=['#fff','#ffe9a8','#fbd1ff'][j%3];x.beginPath();x.arc((R()-.5)*w,t+R()*h,(.8+R()*2)*q,0,7);x.fill()}x.globalAlpha=1}
+ x.fillStyle=`rgba(0,0,0,${sh})`;x.fillRect(-w,t-4,w*2,h+8);
+ let g=x.createLinearGradient(-w/2,0,w/2,0);[[0,'rgba(0,0,0,.42)'],[.2,'rgba(0,0,0,.04)'],[.55,'rgba(255,255,255,.05)'],[.85,'rgba(0,0,0,.12)'],[1,'rgba(0,0,0,.5)']].forEach(s=>g.addColorStop(s[0],s[1]));F(g);
+ g=x.createLinearGradient(0,b,0,b-h*.18);g.addColorStop(0,'rgba(0,0,0,.28)');g.addColorStop(1,'rgba(0,0,0,0)');F(g);
+ x.globalAlpha=gl;
+ if(!Q.ad.matte){g=x.createLinearGradient(0,t,0,t+h*.5);g.addColorStop(0,'rgba(255,255,255,.22)');g.addColorStop(1,'rgba(255,255,255,0)');F(g);
+  x.save();x.translate(lx-w*.14,t+h*.46);g=x.createLinearGradient(-w*.1,0,w*.1,0);g.addColorStop(0,'rgba(255,255,255,0)');g.addColorStop(.5,'rgba(255,255,255,.7)');g.addColorStop(1,'rgba(255,255,255,0)');x.fillStyle=g;x.beginPath();x.ellipse(0,0,w*.09,h*.3,0,0,7);x.fill();x.restore();
+  g=x.createRadialGradient(lx-w*.1,t+h*.2,0,lx-w*.1,t+h*.2,w*.16);g.addColorStop(0,'rgba(255,255,255,.65)');g.addColorStop(1,'rgba(255,255,255,0)');F(g)}
+ else{g=x.createRadialGradient(lx,t+h*.35,0,lx,t+h*.35,w*.6);g.addColorStop(0,'rgba(255,255,255,.16)');g.addColorStop(1,'rgba(255,255,255,0)');F(g)}
+ x.globalAlpha=1;x.restore();
+ path(w,h,Q.sh);x.strokeStyle='rgba(0,0,0,.25)';x.lineWidth=q;x.stroke();
+ if(Q.ad.gem){const gy=b-h*.26,r=7*q;x.save();x.shadowColor='rgba(0,0,0,.45)';x.shadowBlur=3*q;x.shadowOffsetY=q;g=x.createLinearGradient(-r,gy-r,r,gy+r);g.addColorStop(0,'#fff');g.addColorStop(.5,'#b9ccff');g.addColorStop(1,'#f4f7ff');x.fillStyle=g;x.beginPath();x.moveTo(0,gy-r);x.lineTo(r,gy);x.lineTo(0,gy+r);x.lineTo(-r,gy);x.closePath();x.fill();x.restore();
+  x.strokeStyle='#fff';x.lineWidth=1.3*q;x.beginPath();x.moveTo(lx*.4-r*.8,gy-r*.4);x.lineTo(lx*.4+r*.8,gy-r*.4);x.moveTo(lx*.4,gy-r*1.2);x.lineTo(lx*.4,gy+r*.4);x.stroke()}
+ x.restore()}
+
+function draw(){x.clearRect(0,0,W,H);
+ if(src)x.drawImage(src,0,0,W,H);else{x.fillStyle='#e9dedb';x.fillRect(0,0,W,H);x.fillStyle='#9a7d86';x.font='500 26px Prompt,sans-serif';x.textAlign='center';x.fillText('ถ่ายภาพหลังมือเพื่อเริ่มลองเล็บ',W/2,H/2)}
+ NS=[];(mode=='vid'?sm:hands).forEach((lm,i)=>NS.push(...nailsOf(lm,i)));NS.forEach(n=>n.l=lum(n));NS.forEach(nail)}
+
+async function photo(im){stopCam();size(im.naturalWidth||im.width,im.naturalHeight||im.height);src=im;mode='img';off={};hands=[];draw();
+ if(!HL){st('ระบบจับมือยังโหลดไม่เสร็จ รอสักครู่แล้วลองใหม่');return}
+ await setRun('IMAGE');hands=HL.detect(im).landmarks;st(hands.length?`พบมือ ${hands.length} ข้าง — เลือกสีได้เลย`:'ไม่พบมือในภาพ ลองถ่ายให้เห็นหลังมือชัดขึ้น');draw()}
+function file(f){if(!f)return;const im=new Image();im.onload=()=>photo(im);im.src=URL.createObjectURL(f)}
+$('cam').onchange=e=>file(e.target.files[0]);$('pic').onchange=e=>file(e.target.files[0]);
+
+function stopCam(){if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}vid=null;$('snap').hidden=true;$('lv').textContent='เปิดกล้องสด'}
+$('lv').onclick=async()=>{if(stream){stopCam();src=null;mode=null;draw();return}
+ if(!HL){st('ระบบจับมือยังโหลดไม่เสร็จ');return}
+ try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:960}},audio:false});
+  vid=document.createElement('video');vid.playsInline=true;vid.muted=true;vid.srcObject=stream;await vid.play();
+  size(vid.videoWidth,vid.videoHeight);src=vid;mode='vid';sm=[];off={};await setRun('VIDEO');$('snap').hidden=false;$('lv').textContent='ปิดกล้อง';st('ส่องหลังมือให้เห็นทั้งห้านิ้ว');loop()}
+ catch(e){stopCam();st('เปิดกล้องไม่ได้ ตรวจว่าอนุญาตกล้องแล้ว และเว็บเปิดผ่าน https')}};
+function loop(){if(mode!='vid'||!vid)return;
+ if(vid.currentTime!==lastT){lastT=vid.currentTime;const r=HL.detectForVideo(vid,performance.now()).landmarks;
+  if(r.length!==sm.length)sm=r.map(h=>h.map(p=>({...p})));else r.forEach((h,i)=>h.forEach((p,j)=>{const s=sm[i][j];s.x+=(p.x-s.x)*.55;s.y+=(p.y-s.y)*.55}))}
+ draw();requestAnimationFrame(loop)}
+$('snap').onclick=()=>{const c=document.createElement('canvas');c.width=vid.videoWidth;c.height=vid.videoHeight;c.getContext('2d').drawImage(vid,0,0);const im=new Image();im.onload=()=>photo(im);im.src=c.toDataURL('image/jpeg',.92)};
+
+const pt=e=>{const r=C.getBoundingClientRect();return[(e.clientX-r.left)*W/r.width,(e.clientY-r.top)*H/r.height]};
+C.onpointerdown=e=>{if(mode!='img')return;const[px,py]=pt(e);let best=null,bd=1e9;NS.forEach(n=>{const d=Math.hypot(px-n.x,py-n.y);if(d<n.w&&d<bd){bd=d;best=n}});
+ if(best){const o=off[best.id]||[0,0];drag={id:best.id,sx:px,sy:py,o:[...o]};C.setPointerCapture(e.pointerId)}};
+C.onpointermove=e=>{const[px,py]=pt(e);LX=(px/W-.5)*2;if(drag)off[drag.id]=[drag.o[0]+px-drag.sx,drag.o[1]+py-drag.sy];if(mode!='vid')draw()};
+C.onpointerup=C.onpointercancel=()=>drag=null;
+$('sz').oninput=e=>{sc=+e.target.value;if(mode!='vid')draw()};$('ps').oninput=e=>{pos=+e.target.value;if(mode!='vid')draw()};
+
+function lines(){const L=[['ทาเจล 10 นิ้ว',BASE]],s=ST.find(a=>a[0]==P.st);if(s[2])L.push([s[1],s[2]]);AD.forEach(a=>P.ad[a[0]]&&L.push([a[1],a[2]]));return L}
+function menu(){const L=lines(),T=L.reduce((a,b)=>a+b[1],0);
+ $('menu').innerHTML=`<h2>สีเล็บ<span>${SW[P.sw][2]}</span></h2><div class="sw">${SW.map((c,i)=>`<button class="s${i==P.sw?' on':''}" data-sw="${i}" style="--a:${c[0]};--b:${c[1]}" aria-label="${c[2]}"></button>`).join('')}</div>
+ <h2>ลวดลาย</h2>${ST.map(a=>`<button class="row${P.st==a[0]?' on':''}" data-st="${a[0]}"><span>${a[1]}</span><em>${a[2]?'+฿'+a[2]:'รวมในราคา'}</em></button>`).join('')}
+ <h2>เพิ่มเติม</h2>${AD.map(a=>`<button class="row${P.ad[a[0]]?' on':''}" data-ad="${a[0]}"><span>${a[1]}</span><em>+฿${a[2]}</em></button>`).join('')}
+ <h2>ทรงเล็บ</h2><div class="seg">${SH.map(a=>`<button class="row${P.sh==a[0]?' on':''}" data-sh="${a[0]}">${a[1]}</button>`).join('')}</div>
+ <div class="rc">${L.map(a=>`<div><span>${a[0]}</span><span>฿${a[1]}</span></div>`).join('')}<div class="t"><span>รวม</span><span>฿${T.toLocaleString()}</span></div></div>`;
+ $('tot').textContent='฿'+T.toLocaleString();$('sum').textContent=SW[P.sw][2]+' · '+ST.find(a=>a[0]==P.st)[1]}
+$('menu').onclick=e=>{const b=e.target.closest('button');if(!b)return;const d=b.dataset;if(d.sw)P.sw=+d.sw;if(d.st)P.st=d.st;if(d.ad)P.ad[d.ad]=!P.ad[d.ad];if(d.sh)P.sh=d.sh;menu();if(mode!='vid')draw()};
+menu();draw();init();
+</script></body></html>
