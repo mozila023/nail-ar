@@ -38,13 +38,13 @@ h2{font-size:16px;margin:20px 0 8px;font-weight:600;display:flex;justify-content
   <label class="btn pri">ถ่ายภาพมือ<input id="cam" type="file" accept="image/*" capture="environment" hidden></label>
   <label class="btn">เลือกรูป<input id="pic" type="file" accept="image/*" hidden></label>
   <button class="btn" id="lv">เปิดกล้องสด</button><button class="btn" id="snap" hidden>ถ่ายค้างภาพ</button>
-  <button class="btn" id="raw">กดค้างดูมือจริง</button>
+  <button class="btn" id="raw">กดค้างดูมือจริง</button><button class="btn" id="gd" hidden>เส้นนำ: มือขวา</button>
  </div>
  <div class="live"><canvas id="c"></canvas><p id="st">กำลังโหลดระบบจับมือ…</p>
   <div class="bar"><b id="tot"></b><small id="sum"></small></div></div>
  <label class="r">ขนาดเล็บ<input id="sz" type="range" min=".7" max="1.4" step=".01" value="1"></label>
  <label class="r">ตำแหน่ง<input id="ps" type="range" min="-.2" max=".2" step=".01" value="0"></label>
- <p class="note">หันหลังมือเข้ากล้องตรง ๆ กางนิ้วเล็กน้อย ในที่แสงสว่าง ได้ผลแม่นที่สุดกับเล็บที่ยังไม่ทาสี ในโหมดรูปถ่ายลากเล็บเพื่อขยับทีละนิ้วได้</p>
+ <p class="note">แนะนำให้ใช้ “เปิดกล้องสด” จะมีเส้นนำรูปมือ วางปลายนิ้วให้ตรงจุดแล้วระบบจะถ่ายให้เอง · หันหลังมือเข้ากล้องตรง ๆ กางนิ้วเล็กน้อย ในที่แสงสว่าง ได้ผลแม่นที่สุดกับเล็บที่ยังไม่ทาสี ในโหมดรูปถ่ายลากเล็บเพื่อขยับทีละนิ้วได้</p>
  <h2>ขนาดทิปเล็บ<span>เทียบตารางเบอร์ 0–14 (18–7 มม.)</span></h2>
  <label class="r">วัดความกว้างเล็บนิ้วกลางจริง (มม.)<input id="mm" type="number" min="6" max="20" step=".5" value="12"></label>
  <p class="note">ใช้สายวัดหรือเทปวัดส่วนที่กว้างที่สุดของเล็บนิ้วกลาง ระบบจะประมาณขนาดนิ้วอื่นจากภาพ ควรลองทิปจริงก่อนติดทุกครั้ง</p>
@@ -71,7 +71,7 @@ const AD=[['gem','ติดอะไหล่นิ้วนาง 2 นิ้�
 const SH=[['round','กลม'],['oval','วงรี'],['squoval','เหลี่ยมมน'],['square','เหลี่ยม'],['almond','อัลมอนด์'],['coffin','บัลเลต์'],['stiletto','สติเลตโต']];
 const TS=[18,17,16,15,14,13.5,13,12,11.5,11,10.5,10,9,8,7],FN=['โป้ง','ชี้','กลาง','นาง','ก้อย'];
 const TIP=[4,8,12,16,20],DIP=[3,7,11,15,19],K=[1.18,.95,1,.93,.78];
-let P={sw:0,st:'solid',ad:{},sh:'oval',ex:'none',ln:1},HL=null,run='IMAGE',src=null,mode=null,hands=[],sm=[],off={},sc=1,pos=0,stream=null,vid=null,lastT=-1,LX=-.4,drag=null,NS=[],EM={},raw=false,fc=0;
+let P={sw:0,st:'solid',ad:{},sh:'oval',ex:'none',ln:1},HL=null,run='IMAGE',src=null,mode=null,hands=[],sm=[],off={},sc=1,pos=0,stream=null,vid=null,lastT=-1,LX=-.4,drag=null,NS=[],EM={},raw=false,fc=0,GH='R',al0=0;
 const st=t=>$('st').textContent=t;
 const cl=(a,lo,hi)=>Math.max(lo,Math.min(hi,a));
 const lu=(d,i)=>.2126*d[i]+.7152*d[i+1]+.0722*d[i+2];
@@ -145,11 +145,31 @@ function sizes(){const el=$('sizes'),hs=[...new Set(NS.map(n=>n.id[0]))];if(!hs.
  el.innerHTML=hs.map(hd=>{const ns=NS.filter(n=>n.id[0]==hd),mid=ns.find(n=>n.f==2);if(!mid)return'';const k=mm/mid.w;
   return`<div class="rc"><div><b>มือที่ ${+hd+1}</b><span>เบอร์ทิปแนะนำ</span></div>${ns.map(n=>{const v=n.w*k,ci=TS.reduce((bi,t,i)=>Math.abs(t-v)<Math.abs(TS[bi]-v)?i:bi,0);return`<div><span>นิ้ว${FN[n.f]} ≈ ${v.toFixed(1)} มม.</span><span>เบอร์ ${ci}</span></div>`}).join('')}</div>`}).join('')}
 
+// ลายน้ำนำทางรูปมือ (หลังมือ นิ้วชี้ขึ้น) พิกัดในกรอบจัตุรัส 0–1: [โคนนิ้ว x,y, ปลายนิ้ว x,y, รัศมีนิ้ว] เรียง โป้ง ชี้ กลาง นาง ก้อย
+const GF=[[.32,.80,.12,.52,.05],[.36,.58,.33,.18,.045],[.47,.56,.47,.12,.047],[.58,.58,.61,.17,.045],[.68,.63,.75,.30,.038]];
+const G=document.createElement('canvas'),Gc=G.getContext('2d');
+function gbox(){const S=Math.min(W,H)*.9;return{S,ox:(W-S)/2,oy:(H-S)/2+S*.03}}
+function gpt(p,q,b){return[b.ox+(GH=='R'?p:1-p)*b.S,b.oy+q*b.S]}
+function gshape(c,b,ext,col){c.lineCap='round';c.strokeStyle=c.fillStyle=col;
+ GF.forEach(f=>{const a=gpt(f[0],f[1],b),t=gpt(f[2],f[3],b);c.lineWidth=2*f[4]*b.S+ext;c.beginPath();c.moveTo(a[0],a[1]);c.lineTo(t[0],t[1]);c.stroke()});
+ const xl=b.ox+(GH=='R'?.30:.28)*b.S,xw=b.ox+(GH=='R'?.36:.34)*b.S,e=ext/2;
+ c.beginPath();c.roundRect(xl-e,b.oy+.55*b.S-e,.42*b.S+ext,.37*b.S+ext,.12*b.S+e);c.fill();
+ c.beginPath();c.roundRect(xw-e,b.oy+.88*b.S-e,.30*b.S+ext,.2*b.S+ext,.05*b.S+e);c.fill()}
+function guide(ok){const b=gbox(),col=ok?'#3ddc84':'#ffffff';G.width=W;G.height=H;
+ gshape(X,b,0,ok?'rgba(61,220,132,.14)':'rgba(255,255,255,.12)');
+ const lw=Math.max(3,b.S*.008);gshape(Gc,b,lw*2,col);Gc.globalCompositeOperation='destination-out';gshape(Gc,b,0,'#000');Gc.globalCompositeOperation='source-over';
+ GF.forEach(f=>{const t=gpt(f[2],f[3],b);Gc.fillStyle=col;Gc.beginPath();Gc.arc(t[0],t[1],lw*1.6,0,7);Gc.fill()});
+ X.save();X.globalAlpha=.9;X.drawImage(G,0,0);X.restore()}
+function align(lm){const b=gbox();let d=0;GF.forEach((f,i)=>{const t=gpt(f[2],f[3],b);d+=Math.hypot(t[0]-lm[TIP[i]].x*W,t[1]-lm[TIP[i]].y*H)});return d/5/b.S}
+function guideStep(){const v=sm.length?Math.min(...sm.map(align)):1,ok=v<.07;guide(ok);
+ if(ok){if(!al0)al0=performance.now();const l=1.5-(performance.now()-al0)/1000;if(l>0)st(`ตำแหน่งดีแล้ว ค้างไว้ ${Math.ceil(l)}…`);else{al0=0;$('snap').click()}}
+ else{al0=0;st(sm.length?'ขยับมือให้ปลายนิ้วตรงกับจุดบนเส้นนำ':'วางหลังมือให้ตรงกับเส้นนำบนจอ')}}
+
 function draw(){X.clearRect(0,0,W,H);
  if(src)X.drawImage(src,0,0,W,H);else{X.fillStyle='#e9dedb';X.fillRect(0,0,W,H);X.fillStyle='#9a7d86';X.font='500 26px Prompt,sans-serif';X.textAlign='center';X.fillText('ถ่ายภาพหลังมือเพื่อเริ่มลองเล็บ',W/2,H/2)}
  if(raw)return;NS=[];(mode=='vid'?sm:hands).forEach((lm,i)=>NS.push(...nailsOf(lm,i)));
  NS.forEach(n=>{if(!n.man)refine(n);if(mode=='vid'){const e=EM[n.id];if(e)['x','y','w','h'].forEach(k=>n[k]=e[k]+(n[k]-e[k])*.5);EM[n.id]={x:n.x,y:n.y,w:n.w,h:n.h}}});
- NS.forEach(render);if(mode!='vid'||fc++%20==0)sizes()}
+ NS.forEach(render);if(mode!='vid'||fc++%20==0)sizes();if(mode=='vid')guideStep()}
 
 async function photo(im){stopCam();size(im.naturalWidth||im.width,im.naturalHeight||im.height);src=im;mode='img';off={};EM={};hands=[];draw();
  if(!HL){st('ระบบจับมือยังโหลดไม่เสร็จ รอสักครู่แล้วลองใหม่');return}
@@ -157,12 +177,12 @@ async function photo(im){stopCam();size(im.naturalWidth||im.width,im.naturalHeig
 function file(f){if(!f)return;const im=new Image();im.onload=()=>photo(im);im.src=URL.createObjectURL(f)}
 $('cam').onchange=e=>file(e.target.files[0]);$('pic').onchange=e=>file(e.target.files[0]);
 
-function stopCam(){if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}vid=null;$('snap').hidden=true;$('lv').textContent='เปิดกล้องสด'}
+function stopCam(){if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}vid=null;$('snap').hidden=true;$('gd').hidden=true;al0=0;$('lv').textContent='เปิดกล้องสด'}
 $('lv').onclick=async()=>{if(stream){stopCam();src=null;mode=null;draw();return}
  if(!HL){st('ระบบจับมือยังโหลดไม่เสร็จ');return}
  try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:960}},audio:false});
   vid=document.createElement('video');vid.playsInline=true;vid.muted=true;vid.srcObject=stream;await vid.play();
-  size(vid.videoWidth,vid.videoHeight);src=vid;mode='vid';sm=[];off={};EM={};await setRun('VIDEO');$('snap').hidden=false;$('lv').textContent='ปิดกล้อง';st('ส่องหลังมือให้เห็นทั้งห้านิ้ว');loop()}
+  size(vid.videoWidth,vid.videoHeight);src=vid;mode='vid';sm=[];off={};EM={};await setRun('VIDEO');$('snap').hidden=false;$('gd').hidden=false;$('lv').textContent='ปิดกล้อง';st('ส่องหลังมือให้เห็นทั้งห้านิ้ว');loop()}
  catch(e){stopCam();st('เปิดกล้องไม่ได้ ตรวจว่าอนุญาตกล้องแล้ว และเว็บเปิดผ่าน https')}};
 function loop(){if(mode!='vid'||!vid)return;
  if(vid.currentTime!==lastT){lastT=vid.currentTime;const r=HL.detectForVideo(vid,performance.now()).landmarks;
@@ -170,7 +190,7 @@ function loop(){if(mode!='vid'||!vid)return;
  draw();requestAnimationFrame(loop)}
 $('snap').onclick=()=>{const c=document.createElement('canvas');c.width=vid.videoWidth;c.height=vid.videoHeight;c.getContext('2d').drawImage(vid,0,0);const im=new Image();im.onload=()=>photo(im);im.src=c.toDataURL('image/jpeg',.92)};
 const rw=v=>e=>{e.preventDefault();raw=v;if(mode!='vid')draw()};
-$('raw').onpointerdown=rw(true);$('raw').onpointerup=$('raw').onpointerleave=$('raw').onpointercancel=rw(false);
+$('gd').onclick=()=>{GH=GH=='R'?'L':'R';$('gd').textContent='เส้นนำ: มือ'+(GH=='R'?'ขวา':'ซ้าย')};$('raw').onpointerdown=rw(true);$('raw').onpointerup=$('raw').onpointerleave=$('raw').onpointercancel=rw(false);
 
 const pt=e=>{const r=C.getBoundingClientRect();return[(e.clientX-r.left)*W/r.width,(e.clientY-r.top)*H/r.height]};
 C.onpointerdown=e=>{if(mode!='img')return;const[px,py]=pt(e);let best=null,bd=1e9;NS.forEach(n=>{const d=Math.hypot(px-n.x,py-n.y);if(d<n.w&&d<bd){bd=d;best=n}});
